@@ -1,0 +1,92 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+
+  ollama-pull:
+    image: ollama/ollama:latest
+    profiles: ["pull"]
+    depends_on:
+      ollama:
+        condition: service_started
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
+    entrypoint: ["/bin/sh", "-lc"]
+    command: >
+      'until ollama list >/dev/null 2>&1; do
+        echo "Waiting for Ollama...";
+        sleep 2;
+      done;
+      ollama pull "$${OLLAMA_MODEL}"'
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        REQUIREMENTS_FILE: ${REQUIREMENTS_FILE:-requirements.txt}
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    ports:
+      - "8000:8000"
+    volumes:
+      - uploads_data:/app/uploads
+      - obsidian_data:/app/obsidian_vault
+      - reports_data:/app/reports
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        REQUIREMENTS_FILE: ${REQUIREMENTS_FILE:-requirements.txt}
+    restart: unless-stopped
+    env_file:
+      - .env.docker
+    volumes:
+      - uploads_data:/app/uploads
+      - obsidian_data:/app/obsidian_vault
+      - reports_data:/app/reports
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    command: celery -A app.worker.app worker --loglevel=info --pool=solo
+
+volumes:
+  redis_data:
+  ollama_data:
+  uploads_data:
+  obsidian_data:
+  reports_data:

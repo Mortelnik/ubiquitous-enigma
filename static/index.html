@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VoiceFlow AI — Панель управления</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .icon { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; line-height: 1; font-size: 1.05rem; flex: 0 0 auto; }
+    .icon-lg { width: 2rem; height: 2rem; font-size: 1.85rem; }
+    .active-tab { background-color: #E0E7FF; color: #312E81; }
+    .drag-area.drag-over { border-color: #4F46E5; background-color: #EEF2FF; }
+    .spin { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="bg-[#f7f9fb] text-[#1E1B4B] min-h-screen flex">
+  <!-- Side Navigation -->
+  <aside class="w-64 bg-white border-r border-gray-200 flex flex-col h-screen sticky top-0">
+    <div class="p-6 flex items-center gap-3">
+      <!-- Inline SVG logo -->
+      <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-label="VoiceFlow AI" xmlns="http://www.w3.org/2000/svg">
+        <rect x="2" y="13" width="3" height="6" rx="1.5" fill="#1E1B4B"/>
+        <rect x="8" y="8" width="3" height="16" rx="1.5" fill="#1E1B4B"/>
+        <rect x="14" y="3" width="3" height="26" rx="1.5" fill="#4F46E5"/>
+        <rect x="20" y="9" width="3" height="14" rx="1.5" fill="#1E1B4B"/>
+        <rect x="26" y="13" width="3" height="6" rx="1.5" fill="#1E1B4B"/>
+      </svg>
+      <div>
+        <h1 class="text-xl font-bold text-[#1E1B4B] leading-none">VoiceFlow AI</h1>
+        <p class="text-xs text-gray-500 uppercase tracking-wider mt-1">Транскрибатор + Саммари</p>
+      </div>
+    </div>
+    <nav class="flex-1 px-4 space-y-1">
+      <button id="tab-audio-btn" class="w-full flex items-center gap-3 px-4 py-3 bg-[#1E1B4B] text-white rounded-lg font-medium mb-3 hover:bg-opacity-90 transition-all" onclick="setMode('audio')">
+        <span class="icon" aria-hidden="true">▥</span>
+        Загрузить аудио
+      </button>
+      <button id="tab-transcript-btn" class="w-full flex items-center gap-3 px-4 py-2 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors" onclick="setMode('transcript')">
+        <span class="icon" aria-hidden="true">▤</span>
+        Готовый транскрипт
+      </button>
+    </nav>
+    <div class="p-4 border-t border-gray-100">
+      <div class="flex items-center gap-3 p-2">
+        <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">DO</div>
+        <div>
+          <p class="text-sm font-semibold">DevOps</p>
+          <p class="text-xs text-gray-500">локальный пайплайн</p>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="flex-1 flex flex-col min-w-0">
+    <header class="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-8 sticky top-0 z-10">
+      <h2 class="font-bold text-lg" id="header-title">Загрузка аудио</h2>
+      <div class="flex items-center gap-3">
+        <span class="text-xs px-3 py-1 rounded-full font-medium" id="api-badge">Проверка API…</span>
+      </div>
+    </header>
+
+    <div class="p-8 flex gap-8 flex-wrap xl:flex-nowrap">
+      <!-- Left Column -->
+      <div class="flex-1 min-w-[340px] space-y-8">
+        <!-- Audio Upload -->
+        <section class="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm" id="audio-section">
+          <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-bold">Загрузка аудио</h2>
+            <span class="text-xs text-gray-400">WAV, MP3, M4A, WEBM, OGG, MP4</span>
+          </div>
+          <div class="drag-area border-2 border-dashed border-gray-200 rounded-xl py-12 flex flex-col items-center justify-center transition-all cursor-pointer hover:border-indigo-300" id="drop-zone">
+            <div class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-4">
+              <span class="icon icon-lg text-indigo-600" aria-hidden="true">↑</span>
+            </div>
+            <p class="text-lg font-semibold" id="drop-title">Перетащите аудиофайл сюда</p>
+            <p class="text-sm text-gray-500 mt-1">или нажмите для выбора на компьютере</p>
+            <input accept=".wav,.webm,.mp4,.mp3,.ogg,.m4a,audio/*" class="hidden" id="file-input" type="file" />
+          </div>
+
+          <div class="mt-8">
+            <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Промпт для саммари</h3>
+            <select id="audio-prompt" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"></select>
+          </div>
+
+          <div class="flex gap-4 mt-8">
+            <button id="process-audio-btn" class="flex-1 bg-[#1E1B4B] text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed" onclick="handleAudio()">
+              <span class="icon" aria-hidden="true">↻</span>
+              <span>Обработать</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- Transcript Upload -->
+        <section class="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm hidden" id="transcript-section">
+          <div class="flex items-center justify-between mb-6">
+            <h2 class="text-xl font-bold">Готовый транскрипт</h2>
+            <span class="text-xs text-gray-400">TXT, MD</span>
+          </div>
+          <div class="drag-area border-2 border-dashed border-gray-200 rounded-xl py-12 flex flex-col items-center justify-center transition-all cursor-pointer hover:border-indigo-300" id="drop-zone-tr">
+            <div class="w-16 h-16 bg-indigo-50 rounded-full flex items-center justify-center mb-4">
+              <span class="icon icon-lg text-indigo-600" aria-hidden="true">▤</span>
+            </div>
+            <p class="text-lg font-semibold" id="drop-title-tr">Выберите файл транскрипта</p>
+            <p class="text-sm text-gray-500 mt-1">текст будет отправлен на саммаризацию</p>
+            <input accept=".txt,.md" class="hidden" id="file-input-tr" type="file" />
+          </div>
+          <div class="mt-8">
+            <h3 class="text-sm font-bold text-gray-400 uppercase tracking-wider mb-3">Промпт для саммари</h3>
+            <select id="transcript-prompt" class="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"></select>
+          </div>
+          <div class="flex gap-4 mt-8">
+            <button id="process-transcript-btn" class="flex-1 bg-[#1E1B4B] text-white py-3 rounded-lg font-semibold flex items-center justify-center gap-2 hover:bg-opacity-90 transition-all disabled:opacity-50 disabled:cursor-not-allowed" onclick="handleTranscript()">
+              <span class="icon" aria-hidden="true">✦</span>
+              <span>Сгенерировать саммари</span>
+            </button>
+          </div>
+        </section>
+
+        <!-- Status / Progress -->
+        <section class="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm hidden" id="status-card">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <span class="icon text-indigo-600" id="status-icon" aria-hidden="true">⌛</span>
+              <span class="font-semibold" id="status-text">Ожидание…</span>
+            </div>
+            <button id="cancel-btn" class="text-sm px-4 py-2 bg-red-50 text-red-600 rounded-lg font-medium hover:bg-red-100 transition-all hidden" onclick="cancelTask()">
+              Остановить
+            </button>
+          </div>
+          <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full bg-indigo-600 transition-all duration-500" id="progress-bar" style="width:0%"></div>
+          </div>
+        </section>
+
+        <!-- Transcript Preview -->
+        <section class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden hidden" id="transcript-result">
+          <div class="p-6 border-b border-gray-100 flex items-center justify-between">
+            <h2 class="font-bold">Превью транскрипта</h2>
+            <button class="text-gray-400 hover:text-gray-600" onclick="copyText('transcript-preview')" title="Копировать">
+              <span class="icon" aria-hidden="true">⧉</span>
+            </button>
+          </div>
+          <pre id="transcript-preview" class="p-6 text-sm text-gray-700 whitespace-pre-wrap max-h-[400px] overflow-y-auto font-mono leading-relaxed"></pre>
+        </section>
+      </div>
+
+      <!-- Right Column -->
+      <div class="w-full xl:w-[400px] space-y-8">
+        <section class="bg-[#1E1B4B] rounded-2xl p-8 text-white shadow-xl">
+          <div class="flex items-center gap-3 mb-6">
+            <div class="w-10 h-10 bg-white/10 rounded-lg flex items-center justify-center">
+              <span class="icon" aria-hidden="true">✺</span>
+            </div>
+            <h2 class="text-xl font-bold">Итоги и выводы</h2>
+          </div>
+          <div id="summary-empty" class="text-sm text-indigo-200/70 leading-relaxed">
+            Здесь появится саммари после обработки. Выберите промпт и запустите обработку аудио или загрузите готовый транскрипт.
+          </div>
+          <pre id="summary-preview" class="text-sm leading-relaxed whitespace-pre-wrap hidden"></pre>
+        </section>
+
+        <section class="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm">
+          <h2 class="font-bold mb-6">Метрики качества</h2>
+          <div id="metrics-empty" class="text-sm text-gray-400">Метрики появятся после транскрибации аудио.</div>
+          <div id="metrics-block" class="space-y-4 hidden"></div>
+        </section>
+
+        <section class="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="font-bold">Отчёт MVP</h2>
+            <button class="text-xs px-3 py-2 rounded-lg bg-indigo-50 text-indigo-700 font-semibold hover:bg-indigo-100" onclick="loadReport()">
+              Обновить
+            </button>
+          </div>
+          <div id="report-summary" class="grid grid-cols-2 gap-3 text-sm"></div>
+          <a id="report-download" class="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-[#1E1B4B] px-4 py-3 text-sm font-semibold text-white hover:bg-opacity-90" href="/report/export.csv" download>
+            Скачать CSV для отчёта
+          </a>
+          <div id="report-runs" class="mt-4 space-y-2 text-xs text-gray-500"></div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Базовый URL API. При деплое за прокси оставляем относительным.
+    const API_BASE = window.API_BASE || "";
+
+    let currentTaskId = null;
+    let audioFile = null;
+    let transcriptFile = null;
+
+    // ─── Режимы ────────────────────────────────────────────────────────────
+    function setMode(mode) {
+      const audio = mode === 'audio';
+      document.getElementById('audio-section').classList.toggle('hidden', !audio);
+      document.getElementById('transcript-section').classList.toggle('hidden', audio);
+      document.getElementById('header-title').innerText = audio ? 'Загрузка аудио' : 'Готовый транскрипт';
+      document.getElementById('tab-audio-btn').className = audio
+        ? "w-full flex items-center gap-3 px-4 py-3 bg-[#1E1B4B] text-white rounded-lg font-medium mb-3 hover:bg-opacity-90 transition-all"
+        : "w-full flex items-center gap-3 px-4 py-2 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors mb-3";
+      document.getElementById('tab-transcript-btn').className = !audio
+        ? "w-full flex items-center gap-3 px-4 py-3 bg-[#1E1B4B] text-white rounded-lg font-medium hover:bg-opacity-90 transition-all"
+        : "w-full flex items-center gap-3 px-4 py-2 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors";
+    }
+
+    // ─── Загрузка списка промптов ────────────────────────────────────────────
+    async function loadPrompts() {
+      const fallback = [
+        { key: 'prompt_1', name: '👔 Для руководителя' },
+        { key: 'prompt_2', name: '👥 Для сотрудников' },
+        { key: 'prompt_3', name: '📊 Для аналитика' },
+        { key: 'prompt_4', name: '📰 Для отчёта / прессы' },
+      ];
+      let prompts = fallback;
+      try {
+        const res = await fetch(`${API_BASE}/prompts`);
+        if (res.ok) {
+          const data = await res.json();
+          // Real-time промпт (prompt_5) требует current_summary — исключаем из UI.
+          prompts = (data.prompts || []).filter(p => p.key !== 'prompt_5');
+          if (!prompts.length) prompts = fallback;
+        }
+      } catch (e) { /* используем fallback */ }
+
+      const opts = prompts.map(p => `<option value="${p.key}">${p.name}</option>`).join('');
+      document.getElementById('audio-prompt').innerHTML = opts;
+      document.getElementById('transcript-prompt').innerHTML = opts;
+    }
+
+    // ─── Проверка здоровья API ───────────────────────────────────────────────
+    async function checkHealth() {
+      const badge = document.getElementById('api-badge');
+      try {
+        const res = await fetch(`${API_BASE}/health`);
+        if (res.ok) {
+          const d = await res.json();
+          if (!d.whisper_model || !d.ollama_model) throw new Error();
+          const cuda = d.cuda_available ? `CUDA: ${d.cuda_device_name || 'yes'}` : 'CUDA: no';
+          badge.textContent = `API: ${d.whisper_model} • ${cuda} • Whisper: ${d.whisper_device_requested || 'auto'} • NeMo: ${d.diarization_device_requested || 'auto'} • Ollama: ${d.ollama_model}`;
+          badge.className = "text-xs px-3 py-1 rounded-full font-medium bg-green-50 text-green-700";
+          return;
+        }
+        throw new Error();
+      } catch (e) {
+        badge.textContent = "API недоступен — запустите backend";
+        badge.className = "text-xs px-3 py-1 rounded-full font-medium bg-amber-50 text-amber-700";
+      }
+    }
+
+    // ─── Drag & drop: аудио ──────────────────────────────────────────────────
+    function wireDrop(zoneId, inputId, onFile) {
+      const zone = document.getElementById(zoneId);
+      const input = document.getElementById(inputId);
+      zone.addEventListener('click', () => input.click());
+      zone.addEventListener('dragover', (e) => { e.preventDefault(); zone.classList.add('drag-over'); });
+      ['dragleave', 'drop'].forEach(ev => zone.addEventListener(ev, () => zone.classList.remove('drag-over')));
+      zone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (e.dataTransfer.files.length) { input.files = e.dataTransfer.files; onFile(e.dataTransfer.files[0]); }
+      });
+      input.addEventListener('change', (e) => { if (e.target.files.length) onFile(e.target.files[0]); });
+    }
+
+    wireDrop('drop-zone', 'file-input', (f) => {
+      audioFile = f;
+      document.getElementById('drop-title').innerText = f.name;
+    });
+    wireDrop('drop-zone-tr', 'file-input-tr', (f) => {
+      transcriptFile = f;
+      document.getElementById('drop-title-tr').innerText = f.name;
+    });
+
+    // ─── Обработка аудио ─────────────────────────────────────────────────────
+    async function handleAudio() {
+      if (!audioFile) { alert('Выберите аудиофайл'); return; }
+      const btn = document.getElementById('process-audio-btn');
+      setBtnBusy(btn, true);
+      showStatus('Загружаю файл…', 5);
+
+      const fd = new FormData();
+      fd.append('file', audioFile);
+      fd.append('prompt', document.getElementById('audio-prompt').value);
+
+      try {
+        const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: fd });
+        const { task_id } = await res.json();
+        poll(task_id, btn);
+      } catch (e) {
+        showStatus('Ошибка соединения с backend', 0, true);
+        setBtnBusy(btn, false);
+      }
+    }
+
+    // ─── Обработка транскрипта ───────────────────────────────────────────────
+    async function handleTranscript() {
+      if (!transcriptFile) { alert('Выберите файл транскрипта'); return; }
+      const btn = document.getElementById('process-transcript-btn');
+      setBtnBusy(btn, true);
+      showStatus('Отправляю транскрипт…', 10);
+
+      const fd = new FormData();
+      fd.append('transcript_file', transcriptFile);
+      fd.append('prompt', document.getElementById('transcript-prompt').value);
+
+      try {
+        const res = await fetch(`${API_BASE}/summarize-file`, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.error) { showStatus(data.error, 0, true); setBtnBusy(btn, false); return; }
+        poll(data.task_id, btn);
+      } catch (e) {
+        showStatus('Ошибка соединения с backend', 0, true);
+        setBtnBusy(btn, false);
+      }
+    }
+
+    // ─── Опрос статуса ───────────────────────────────────────────────────────
+    async function poll(taskId, btn) {
+      currentTaskId = taskId;
+      document.getElementById('cancel-btn').classList.remove('hidden');
+      let pct = 15;
+      try {
+        const res = await fetch(`${API_BASE}/status/${taskId}`);
+        const data = await res.json();
+
+        if (data.state === 'PENDING' || data.state === 'PROGRESS') {
+          pct = Math.min(90, pct + 10);
+          showStatus(data.status || 'Обрабатываю…', pct);
+          setTimeout(() => poll(taskId, btn), 2000);
+        } else if (data.state === 'SUCCESS') {
+          showStatus(data.status || 'Готово!', 100);
+          document.getElementById('cancel-btn').classList.add('hidden');
+          setBtnBusy(btn, false);
+          renderMetrics(data.metrics);
+          renderPreview(data.transcript_preview, data.summary_preview);
+        } else {
+          showStatus(data.status || 'Ошибка', 0, true);
+          document.getElementById('cancel-btn').classList.add('hidden');
+          setBtnBusy(btn, false);
+        }
+      } catch (e) {
+        showStatus('Потеряно соединение с backend', 0, true);
+        setBtnBusy(btn, false);
+      }
+    }
+
+    async function cancelTask() {
+      if (!currentTaskId) return;
+      try { await fetch(`${API_BASE}/cancel/${currentTaskId}`, { method: 'POST' }); } catch (e) {}
+      showStatus('Задача остановлена', 0, true);
+      document.getElementById('cancel-btn').classList.add('hidden');
+      setBtnBusy(document.getElementById('process-audio-btn'), false);
+      setBtnBusy(document.getElementById('process-transcript-btn'), false);
+      currentTaskId = null;
+    }
+
+    // ─── UI helpers ──────────────────────────────────────────────────────────
+    function setBtnBusy(btn, busy) {
+      btn.disabled = busy;
+      const icon = btn.querySelector('.icon');
+      if (icon) icon.classList.toggle('spin', busy);
+    }
+
+    function showStatus(text, pct, isError = false) {
+      document.getElementById('status-card').classList.remove('hidden');
+      document.getElementById('status-text').innerText = text;
+      const icon = document.getElementById('status-icon');
+      icon.innerText = isError ? '!' : (pct >= 100 ? '✓' : '⌛');
+      icon.className = "icon " + (isError ? "text-red-600" : (pct >= 100 ? "text-green-600" : "text-indigo-600"));
+      const bar = document.getElementById('progress-bar');
+      bar.style.width = (pct || 0) + '%';
+      bar.className = "h-full transition-all duration-500 " + (isError ? "bg-red-500" : "bg-indigo-600");
+    }
+
+    function renderMetrics(m) {
+      const empty = document.getElementById('metrics-empty');
+      const block = document.getElementById('metrics-block');
+      if (!m || m.note) {
+        empty.classList.remove('hidden');
+        block.classList.add('hidden');
+        empty.innerText = m && m.note ? m.note : 'Метрики недоступны.';
+        return;
+      }
+      empty.classList.add('hidden');
+      block.classList.remove('hidden');
+      const rows = [
+        ['Длительность', `${m.duration_min} мин`],
+        ['Сегментов', m.segments_count],
+        ['Спикеров', m.speakers_count],
+        ['Silhouette (диаризация)', m.silhouette],
+        ['Неизвестных спикеров', `${m.unknown_speaker_pct}%`],
+        ['Уверенность Whisper', m.avg_logprob],
+        ['Удалено галлюцинаций', m.hallucinations_removed],
+        ['Уверенность языка', m.language_probability],
+        ['Модель Whisper', m.whisper_model],
+        ['Whisper device', `${m.whisper_device || m.device || '—'} / ${m.whisper_compute_type || '—'}`],
+        ['Whisper fallback CPU', m.whisper_fallback_used ? 'да' : 'нет'],
+        ['NeMo device', m.diarization_device || '—'],
+        ['NeMo fallback CPU', m.diarization_fallback_used ? 'да' : 'нет'],
+        ['CUDA доступна', m.cuda_available ? 'да' : 'нет'],
+        ['CUDA устройство', m.cuda_device_name || '—'],
+        ['PyTorch', m.torch_version || '—'],
+        ['PyTorch CUDA runtime', m.torch_cuda_version || '—'],
+      ];
+      block.innerHTML = rows.map(([k, v]) => `
+        <div class="flex justify-between text-sm border-b border-gray-100 pb-2">
+          <span class="text-gray-500">${k}</span>
+          <span class="font-semibold">${v ?? '—'}</span>
+        </div>`).join('');
+    }
+
+    function renderPreview(transcript, summary) {
+      if (transcript) {
+        document.getElementById('transcript-result').classList.remove('hidden');
+        document.getElementById('transcript-preview').innerText = transcript;
+      }
+      if (summary) {
+        document.getElementById('summary-empty').classList.add('hidden');
+        const el = document.getElementById('summary-preview');
+        el.classList.remove('hidden');
+        el.innerText = summary;
+      }
+    }
+
+    function copyText(id) {
+      const t = document.getElementById(id).innerText;
+      navigator.clipboard?.writeText(t);
+    }
+
+    async function loadReport() {
+      const summaryEl = document.getElementById('report-summary');
+      const runsEl = document.getElementById('report-runs');
+      try {
+        const res = await fetch(`${API_BASE}/report/summary`);
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        const cards = [
+          ['Всего', data.total_runs],
+          ['Успешно', `${data.task_success_rate_pct}%`],
+          ['Avg ratio', data.avg_processing_ratio ?? '—'],
+          ['GPU runs', `${data.gpu_run_share_pct}%`],
+        ];
+        summaryEl.innerHTML = cards.map(([k, v]) => `
+          <div class="rounded-xl bg-gray-50 p-3">
+            <div class="text-[11px] uppercase tracking-wide text-gray-400">${k}</div>
+            <div class="mt-1 font-bold text-[#1E1B4B]">${v}</div>
+          </div>`).join('');
+        const runs = data.latest_runs || [];
+        runsEl.innerHTML = runs.length
+          ? runs.slice().reverse().map(r => `
+            <div class="rounded-lg border border-gray-100 p-2">
+              <div class="font-semibold text-gray-700">${r.source_name || 'run'} · ${r.status}</div>
+              <div>time: ${r.processing_time_sec ?? '—'}s · ratio: ${r.processing_ratio ?? '—'} · ${r.whisper_device || '—'}</div>
+            </div>`).join('')
+          : 'После первой обработки здесь появятся строки для отчёта.';
+      } catch (e) {
+        summaryEl.innerHTML = '<div class="col-span-2 text-sm text-amber-700">Отчёт недоступен — запустите backend.</div>';
+        runsEl.innerHTML = '';
+      }
+    }
+
+    // ─── Init ────────────────────────────────────────────────────────────────
+    loadPrompts();
+    checkHealth();
+    loadReport();
+  </script>
+</body>
+</html>

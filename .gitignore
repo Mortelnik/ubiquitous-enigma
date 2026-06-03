@@ -1,0 +1,26 @@
+# Окружение и секреты
+.env
+.env.docker
+
+# Загрузки и кэш
+uploads/*
+!uploads/.gitkeep
+*_clean.wav
+*_cache.json
+
+# Obsidian vault (локальные данные)
+obsidian_vault/
+reports/*
+!reports/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+.pytest_cache/
+
+# Локальные Docker/uv артефакты
+.uv-cache/

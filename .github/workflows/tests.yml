@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      ENABLE_DIARIZATION: "false"
+      WHISPER_MODEL: "base"
+      WHISPER_DEVICE: "cpu"
+      DIARIZATION_DEVICE: "cpu"
+      OLLAMA_HOST: "http://localhost:11434"
+      REDIS_URL: "redis://localhost:6379/0"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install lightweight dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-min.txt
+
+      - name: Run smoke tests
+        run: pytest -q

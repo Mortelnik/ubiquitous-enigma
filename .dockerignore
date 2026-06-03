@@ -1,0 +1,14 @@
+.git
+.pytest_cache
+__pycache__
+*.py[cod]
+.venv
+venv
+.env
+.env.docker
+uploads/*
+!uploads/.gitkeep
+obsidian_vault
+*_clean.wav
+*_cache.json
+preview_desktop.png
