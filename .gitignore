@@ -24,3 +24,5 @@ venv/
 
 # Локальные Docker/uv артефакты
 .uv-cache/
+
+preview_desktop.png
