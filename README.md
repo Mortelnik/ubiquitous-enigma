@@ -15,7 +15,7 @@
 ## Структура проекта
 
 ```
-rebuilt_project/
+.
 ├── app/
 │   ├── __init__.py
 │   ├── config.py        # вся конфигурация из .env (без хардкодов)
@@ -66,7 +66,7 @@ cp .env.example .env
 uv sync --extra dev
 
 # Если нужна NeMo-диаризация:
-# uv sync --extra dev --extra diarization
+uv sync --extra dev --extra diarization
 
 # Терминал 1 — Redis, если не установлен локально:
 docker run --rm -p 6379:6379 redis:7-alpine
@@ -75,7 +75,7 @@ docker run --rm -p 6379:6379 redis:7-alpine
 uv run celery -A app.worker.app worker --loglevel=info --pool=solo
 
 # Терминал 3 — API + фронтенд:
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Откройте <http://localhost:8000>. Для саммари нужен запущенный Ollama:
@@ -151,7 +151,7 @@ silero-vad OK
 RuntimeError: Library cublas64_12.dll is not found or cannot be loaded
 ```
 
-По умолчанию worker **не** пробует WhisperX, потому что на Windows + RTX 50xx +
+По умолчанию worker не пробует WhisperX, потому что на Windows + RTX 50xx +
 `cu130` он может зависать даже на коротких файлах после загрузки Silero VAD.
 Практический MVP-режим: сразу уйти на Faster-Whisper CPU/int8 fallback.
 
@@ -233,9 +233,6 @@ worker ставит compatibility stub для `speechbrain.integrations.nlp`. Fl
 ```powershell
 uv sync --extra dev --extra diarization
 ```
-
-Если stable `cu130` wheel недоступен в вашей среде, можно временно использовать
-nightly `cu130`, но не уходить на `cu126` для RTX 50xx:
 
 ```powershell
 uv pip uninstall torch torchvision torchaudio -y
@@ -351,8 +348,8 @@ REQUIREMENTS_FILE=requirements-min.txt docker compose build
 Этот сценарий самый предсказуемый и подходит для ноутбуков/ПК без NVIDIA GPU.
 
 ```powershell
-git clone https://github.com/<your-user>/<repo>.git
-cd <repo>
+git clone https://github.com/Mortelnik/ubiquitous-enigma.git
+cd ubiquitous-enigma
 Copy-Item .env.docker.example .env.docker
 ```
 
@@ -381,7 +378,7 @@ docker compose --env-file .env.docker logs -f worker
 Faster-Whisper CPU/int8, диаризация отключена, поэтому запуск максимально
 надёжный.
 
-#### Docker на новом ПК с RTX 4070
+#### Docker если нет RTX 50xx
 
 Сначала установите:
 
@@ -402,7 +399,7 @@ cd <repo>
 Copy-Item .env.docker.example .env.docker
 ```
 
-Для первого запуска на RTX 4070 всё равно начните со стабильного режима:
+Для первого запуска начните со стабильного режима:
 
 ```env
 WHISPER_MODEL=base
@@ -479,7 +476,7 @@ cp .env.docker.example .env.docker
 | Переменная           | По умолчанию                                          | Назначение                                              |
 | -------------------- | ----------------------------------------------------- | ------------------------------------------------------- |
 | `UPLOAD_DIR`         | `uploads`                                             | Каталог для загруженных аудио                           |
-| `OBSIDIAN_VAULT`     | `obsidian_vault`                                      | Путь к вашему Obsidian vault                            |
+| `OBSIDIAN_VAULT`     | `obsidian_vault`                                      | Путь к Obsidian vault                            |
 | `OBSIDIAN_FOLDER`    | `Встречи`                                             | Подпапка внутри vault для заметок                       |
 | `REPORT_DIR`         | `reports`                                             | JSONL/CSV-метрики обработок для отчёта MVP              |
 | `REDIS_URL`          | `redis://localhost:6379/0`                            | Брокер и backend Celery                                 |
@@ -533,7 +530,7 @@ Markdown для Obsidian, ленивый импорт воркера и эндп
 
 ---
 
-## Сбор данных для отчёта MVP
+## Сбор данных
 
 После каждой успешной или ошибочной обработки сервис добавляет строку в
 `reports/runs.jsonl`. В запись входят:
@@ -553,22 +550,4 @@ curl http://localhost:8000/report/runs
 curl -o voiceflow_report.csv http://localhost:8000/report/export.csv
 ```
 
-CSV подходит для Excel/Google Sheets и закрывает требование «результат работы
-продукта должен быть оцифрован».
-
 ---
-
-## Что изменилось при пересборке
-
-- Убран хардкод пути `D:/proj/mvp/uploads` → всё через `.env` и `app/config.py`.
-- Добавлен **CORS** в FastAPI (раньше его не было в основном сервере).
-- Статика переехала из `templates/` в чистый каталог `static/`.
-- **Real-time промпт** (`prompt_5`) больше не роняет `str.format` из-за
-  отсутствующего `{current_summary}` — добавлен безопасный `render_prompt`.
-- Тяжёлые ML-импорты в воркере стали **ленивыми** — модуль импортируется и
-  тестируется без torch/NeMo; опция `ENABLE_DIARIZATION=false` пропускает NeMo.
-- Имена выбора промптов на фронтенде синхронизированы с реальными названиями
-  из `prompts.py` (загружаются динамически через `/prompts`).
-- Объединены два фронтенда: взят дизайн VoiceFlow AI и подключён к **рабочему**
-  Celery-API (загрузка, опрос статуса, отмена, метрики, превью).
-- Добавлены `requirements`, `.env.example`, smoke-тесты, скрипты запуска, README.
