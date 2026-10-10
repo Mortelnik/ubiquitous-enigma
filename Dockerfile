@@ -24,10 +24,11 @@ COPY requirements.txt requirements-min.txt ./
 RUN uv pip install --system -r "${REQUIREMENTS_FILE}"
 
 COPY app ./app
+COPY bot ./bot
 COPY static ./static
 COPY tests ./tests
-COPY run_api.sh run_worker.sh README.md pyproject.toml ./
-RUN chmod +x run_api.sh run_worker.sh \
+COPY run_api.sh run_bot.sh run_worker.sh README.md pyproject.toml ./
+RUN chmod +x run_api.sh run_bot.sh run_worker.sh \
     && mkdir -p uploads obsidian_vault reports
 
 EXPOSE 8000

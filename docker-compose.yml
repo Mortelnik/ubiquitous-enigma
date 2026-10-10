@@ -19,6 +19,7 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+      - C:/Users/Mot/.ollama/models:/root/.ollama/models
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 15s
@@ -33,7 +34,7 @@ services:
         condition: service_started
     environment:
       OLLAMA_HOST: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:12b}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3.8:27b}
     entrypoint: ["/bin/sh", "-lc"]
     command: >
       'until ollama list >/dev/null 2>&1; do
@@ -83,6 +84,25 @@ services:
       ollama:
         condition: service_started
     command: celery -A app.worker.app worker --loglevel=info --pool=solo
+
+
+  # Телеграм-бот VoiceFlow AI. Запуск: docker compose --profile bot up -d bot
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        REQUIREMENTS_FILE: ${REQUIREMENTS_FILE:-requirements.txt}
+    restart: unless-stopped
+    profiles: ["bot"]
+    env_file:
+      - .env.docker
+    environment:
+      VOICEFLOW_API_URL: http://api:8000
+    depends_on:
+      api:
+        condition: service_started
+    command: ["python", "-m", "bot.main"]
 
 volumes:
   redis_data:

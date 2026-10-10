@@ -30,7 +30,7 @@ def test_prompts_present_and_render():
     from app.prompts import PROMPTS, render_prompt, get_prompt
 
     # Все 5 ролевых промптов на месте.
-    assert set(PROMPTS) == {f"prompt_{i}" for i in range(1, 6)}
+    assert set(PROMPTS) == {"style_classifier", *(f"prompt_{i}" for i in range(1, 6))}
     for key in PROMPTS:
         assert "name" in PROMPTS[key] and "text" in PROMPTS[key]
 
