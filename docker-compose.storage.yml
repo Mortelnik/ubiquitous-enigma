@@ -1,0 +1,9 @@
+# Optional: open ./obsidian_vault directly as a vault in Windows Obsidian.
+# Copy existing notes from the named volume before enabling this override.
+services:
+  api:
+    volumes:
+      - ./obsidian_vault:/app/obsidian_vault
+  worker:
+    volumes:
+      - ./obsidian_vault:/app/obsidian_vault

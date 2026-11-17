@@ -1,4 +1,8 @@
 # Python
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 __pycache__/
 *.py[cod]
 *$py.class
@@ -34,6 +38,12 @@ data/duma/
 data/duma/raw/
 data/duma/tts_audio/
 datasets/
+# Runtime content may include commercial audio, transcripts and filenames.
+uploads/*
+!uploads/.gitkeep
+obsidian_vault/
+reports/*
+!reports/.gitkeep
 *.parquet
 *.tar
 *.tar.gz
@@ -65,19 +75,16 @@ checkpoints/
 .cache/
 cache/
 hf_cache/
-hf_cache/
 transformers_cache/
 
 # Секреты (никогда не загружать!)
 .env
 .env.*
 !.env.docker.example
+!.env.example
+*.joblib
 *.pem
 *.key
-*.json
-!package.json
-!tsconfig.json
-*.pem
 *.crt
 *.p12
 

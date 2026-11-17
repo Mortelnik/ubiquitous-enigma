@@ -50,7 +50,7 @@ class Settings:
 
     # ─── Whisper / распознавание речи ────────────────────────────────────
     WHISPER_MODEL: str = os.getenv("WHISPER_MODEL", "large-v3")
-    # auto = cuda при доступном CUDA PyTorch, иначе cpu. Можно явно: cuda или cpu.
+    # auto = cuda при доступном CUDA CTranslate2 и включённом флаге, иначе cpu.
     WHISPER_DEVICE: str = os.getenv("WHISPER_DEVICE", "auto").strip().lower()
     # auto = float16 на cuda, int8 на cpu. Можно явно: float16, int8, int8_float16, float32.
     WHISPER_COMPUTE_TYPE: str = os.getenv("WHISPER_COMPUTE_TYPE", "auto").strip().lower()
@@ -66,7 +66,7 @@ class Settings:
     LANGUAGE: str = os.getenv("LANGUAGE", "ru")
 
     # ─── Диаризация ──────────────────────────────────────────────────────
-    ENABLE_DIARIZATION: bool = _bool(os.getenv("ENABLE_DIARIZATION"), True)
+    ENABLE_DIARIZATION: bool = _bool(os.getenv("ENABLE_DIARIZATION"), False)
     MAX_SPEAKERS: int = int(os.getenv("MAX_SPEAKERS", "10"))
     DIARIZATION_MODEL: str = os.getenv(
         "DIARIZATION_MODEL", "nvidia/speakerverification_en_titanet_large"
@@ -81,11 +81,26 @@ class Settings:
     OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 
     # ─── API / CORS ──────────────────────────────────────────────────────
-    API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
+    API_HOST: str = os.getenv("API_HOST", "127.0.0.1")
     API_PORT: int = int(os.getenv("API_PORT", "8000"))
-    # Список origin'ов через запятую. По умолчанию "*" (удобно для разработки).
+    API_TOKEN: str = os.getenv("VOICEFLOW_API_TOKEN", "")
+    MAX_UPLOAD_BYTES: int = int(os.getenv("MAX_UPLOAD_MB", "100")) * 1024 * 1024
+    CLASSIFIER_MODEL: Path = _path("CLASSIFIER_MODEL", "models/style_classifier.joblib")
+    BOT_API_TOKEN: str = os.getenv("VOICEFLOW_BOT_API_TOKEN", "")
+    QUEUE_MAX_JOBS: int = int(os.getenv("QUEUE_MAX_JOBS", "20"))
+    QUEUE_MAX_USER_JOBS: int = int(os.getenv("QUEUE_MAX_USER_JOBS", "3"))
+    QUEUE_ADMISSION_INTERVAL_SEC: float = float(os.getenv("QUEUE_ADMISSION_INTERVAL_SEC", "3"))
+    UPLOAD_TIMEOUT_SEC: float = float(os.getenv("UPLOAD_TIMEOUT_SEC", "180"))
+    QUEUE_TIMEOUT_SEC: float = float(os.getenv("QUEUE_TIMEOUT_SEC", "3600"))
+    PROCESS_TIMEOUT_SEC: float = float(os.getenv("PROCESS_TIMEOUT_SEC", "900"))
+    MAX_AUDIO_DURATION_SEC: float = float(os.getenv("MAX_AUDIO_DURATION_SEC", "600"))
+    FFMPEG_TIMEOUT_SEC: float = float(os.getenv("FFMPEG_TIMEOUT_SEC", "120"))
+    OLLAMA_TIMEOUT_SEC: float = float(os.getenv("OLLAMA_TIMEOUT_SEC", "180"))
+    JOB_HISTORY_SEC: int = int(os.getenv("JOB_HISTORY_SEC", "86400"))
+    UPLOAD_RETENTION_HOURS: float = float(os.getenv("UPLOAD_RETENTION_HOURS", "24"))
+    # Дополнительные origin'ы через запятую; по умолчанию только same-origin.
     CORS_ORIGINS: list[str] = [
-        o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",") if o.strip()
+        o.strip() for o in os.getenv("CORS_ORIGINS", "").split(",") if o.strip()
     ]
 
     def ensure_dirs(self) -> None:

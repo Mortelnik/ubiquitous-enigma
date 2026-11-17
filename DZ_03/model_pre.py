@@ -1,124 +1,165 @@
-"""Подготовка датасета для ДЗ 3: классификация стиля речи (разговорный vs официальный).
+"""Prepare disjoint style datasets; paths are independent of the working directory."""
 
-Домены Balalaika размечаются по стилю:
-- класс 0 (разговорный): телефонные разговоры, радио, YouTube, сериалы
-- класс 1 (официальный): публичные выступления, лекции, аудиокниги
-- TTS-адреса (робот) исключаются как неестественная речь
-"""
+from __future__ import annotations
 
-import pandas as pd
-import numpy as np
-import re
+import argparse
+import hashlib
 import json
 from pathlib import Path
 
-RAW_DIR = Path("../data/raw")
-OUT_DIR = Path("../data/processed")
-OUT_DIR.mkdir(parents=True, exist_ok=True)
+import pandas as pd
+from sklearn.model_selection import GroupShuffleSplit
 
+from app.classifier import preprocess
+
+ROOT = Path(__file__).resolve().parents[1]
+RAW_DIR = ROOT / "data/raw"
+OUT_DIR = ROOT / "data/processed"
+
+# Weak domain labels only. Mixed domains and fiction are deliberately excluded.
 DOMAIN_LABELS = {
     "asr_public_phone_calls_1": 0,
     "asr_public_phone_calls_2": 0,
     "public_series_1": 0,
-    "public_youtube1120": 0,
-    "public_youtube1120_hq": 0,
-    "public_youtube700": 0,
-    "radio-v4": 0,
-    "radio_2": 0,
-    "radio_v4_add": 0,
     "public_lecture_1": 1,
     "public_speech": 1,
-    "asr_public_stories_1": 1,
-    "asr_public_stories_2": 1,
-    "private_buriy_audiobooks_2": 1,
-    "tts_russian_addresses_rhvoice_4voices": None,  # робот — исключаем
 }
+GROUP_COLUMNS = ("source_id", "recording_id", "speaker_id", "playlist_id", "podcast_id", "group_id")
+clean_text = preprocess
 
-CLASS_NAMES = {0: "разговорный", 1: "официальный"}
 
-
-def load_and_label():
+def load_and_label(raw_dir: Path = RAW_DIR) -> pd.DataFrame:
     frames = []
-    for pq in sorted(RAW_DIR.glob("*.parquet")):
-        d = pd.read_parquet(pq)
-        d["domain"] = pq.stem.replace("_balalaika", "")
-        frames.append(d)
-    df = pd.concat(frames, ignore_index=True)
-    df["label"] = df["domain"].map(DOMAIN_LABELS)
-    return df
+    for path in sorted(raw_dir.glob("*.parquet")):
+        frame = pd.read_parquet(path)
+        if "domain" not in frame:
+            frame["domain"] = path.stem.removesuffix("_balalaika")
+        if "label" not in frame:
+            frame["label"] = frame.domain.map(DOMAIN_LABELS)
+            frame["label_source"] = "weak_domain"
+        else:
+            frame["label_source"] = frame.get("label_source", "provided")
+        frames.append(frame)
+    if not frames:
+        raise ValueError(f"В {raw_dir} нет parquet-файлов")
+    return pd.concat(frames, ignore_index=True)
 
 
-def clean_text(t: str) -> str:
-    """Нормализация текста: нижний регистр, только буквы/цифры/пробелы."""
-    if not isinstance(t, str):
-        return ""
-    t = re.sub(r"[^\w\s]", " ", t, flags=re.UNICODE)
-    t = re.sub(r"\s+", " ", t)
-    return t.lower().strip()
+def prepare_rows(frame: pd.DataFrame) -> pd.DataFrame:
+    frame = frame.copy()
+    if "text" not in frame:
+        frame["text"] = frame["punct"]
+    frame["text"] = frame.text.fillna(frame.get("punct", pd.Series("", index=frame.index))).fillna("")
+    frame["text_clean"] = frame.text.map(preprocess)
+    frame["n_words"] = frame.text_clean.str.split().str.len()
+    frame = frame[frame.label.notna()].copy()
+    if not frame.label.isin([0, 1]).all():
+        raise ValueError("Метки должны быть 0 (разговорный) или 1 (официальный)")
+    frame["label"] = frame.label.astype(int)
+    keep = frame.n_words.between(3, 300)
+    if "mos_pred" in frame:
+        keep &= frame.mos_pred.ge(4.0) | frame.mos_pred.isna()
+    if "is_single_speaker" in frame:
+        keep &= frame.is_single_speaker.eq(True) | frame.is_single_speaker.isna()
+    frame = frame[keep].reset_index(drop=True)
+    if frame.groupby("text_clean").label.nunique().gt(1).any():
+        raise ValueError("У одинаковых текстов противоречащие метки; исправьте разметку")
+    # Union shared sources before deduplication so duplicates cannot sever groups.
+    parent = list(range(len(frame)))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for column in ("text_clean", "filepath", *GROUP_COLUMNS):
+        if column not in frame:
+            continue
+        seen = {}
+        domains = frame.get("domain", pd.Series("", index=frame.index))
+        for i, (value, domain) in enumerate(zip(frame[column], domains)):
+            if pd.isna(value) or not str(value).strip():
+                continue
+            namespace = str(domain) if column in {"playlist_id", "podcast_id"} else ""
+            key = (namespace, str(value))
+            if key in seen:
+                parent[find(i)] = find(seen[key])
+            else:
+                seen[key] = i
+    members = {}
+    for i, text in enumerate(frame.text_clean):
+        members.setdefault(find(i), []).append(text)
+    group_ids = {key: hashlib.sha256("\n".join(sorted(set(texts))).encode()).hexdigest()
+                 for key, texts in members.items()}
+    frame["group_id"] = [group_ids[find(i)] for i in range(len(frame))]
+    return frame.drop_duplicates("text_clean").reset_index(drop=True)
+
+
+def _split(frame: pd.DataFrame, fraction: float, seed: int):
+    best, score = None, float("inf")
+    splitter = GroupShuffleSplit(n_splits=100, test_size=fraction, random_state=seed)
+    for left, right in splitter.split(frame, frame.label, groups=frame.group_id):
+        a, b = frame.iloc[left], frame.iloc[right]
+        if a.label.nunique() != 2 or b.label.nunique() != 2:
+            continue
+        error = abs(len(b) / len(frame) - fraction) + abs(a.label.mean() - b.label.mean())
+        if error < score:
+            best, score = (a, b), error
+    if best is None:
+        raise ValueError("Недостаточно независимых групп обоих классов для разбиения")
+    return best
+
+
+def assert_disjoint(splits: dict[str, pd.DataFrame]) -> None:
+    for name, frame in splits.items():
+        if frame.empty or frame.label.nunique() != 2:
+            raise ValueError(f"{name}: нужны непустые данные обоих классов")
+        if not frame.label.isin([0, 1]).all():
+            raise ValueError(f"{name}: недопустимые метки")
+        if not frame.text.fillna("").map(preprocess).str.len().gt(0).all():
+            raise ValueError(f"{name}: пустой нормализованный текст")
+    names = list(splits)
+    for i, name in enumerate(names):
+        for other in names[i + 1:]:
+            a, b = splits[name], splits[other]
+            if set(a.text.map(preprocess)) & set(b.text.map(preprocess)):
+                raise ValueError(f"Пересечение текстов: {name}/{other}")
+            for column in ("filepath", *GROUP_COLUMNS):
+                if column in a and column in b:
+                    def keys(frame):
+                        valid = frame[column].notna() & frame[column].astype(str).str.strip().ne("")
+                        values = frame.loc[valid, column].astype(str)
+                        if column in {"playlist_id", "podcast_id"} and "domain" in frame:
+                            values = frame.loc[valid, "domain"].astype(str) + ":" + values
+                        return set(values)
+                    if keys(a) & keys(b):
+                        raise ValueError(f"Пересечение {column}: {name}/{other}")
+
+
+def split_dataset(frame: pd.DataFrame, seed: int = 42) -> dict[str, pd.DataFrame]:
+    train, held_out = _split(frame, 0.3, seed)
+    val, test = _split(held_out, 0.5, seed + 1)
+    splits = {"train": train, "val": val, "test": test}
+    assert_disjoint(splits)
+    return splits
 
 
 def main():
-    df = load_and_label()
-    n0 = (df.label == 0).sum()
-    n1 = (df.label == 1).sum()
-    print(f"Всего записей: {len(df)}")
-    print(f"Класс 0 (разговорный): {n0}")
-    print(f"Класс 1 (официальный): {n1}")
-    print(f"Исключено (робот/прочее): {len(df) - n0 - n1}")
-
-    # Базовая фильтрация качества: MOS >= 4.0, один диктор, непустой текст
-    df["text"] = df["punct"].fillna("")
-    df["text_clean"] = df["text"].apply(clean_text)
-    df["n_words"] = df["text_clean"].str.split().str.len()
-
-    keep = (
-        df.label.notna()
-        & (df.mos_pred >= 4.0)
-        & (df.is_single_speaker == True)
-        & (df.n_words >= 3)
-    )
-    filtered = df[keep].copy()
-    print(f"\nПосле фильтрации (MOS>=4, single speaker, >=3 слов): {len(filtered)}")
-    print(f"Класс 0: {(filtered.label==0).sum()}, класс 1: {(filtered.label==1).sum()}")
-
-    # Ограничим максимальную длину и уберём дубликаты
-    filtered = filtered[filtered.n_words <= 300].drop_duplicates("text_clean")
-    drop_cols = [c for c in ("end", "start", "playlist_id", "podcast_id", "accent", "rover", "phonemes", "model") if c in filtered.columns]
-    filtered = filtered.drop(columns=drop_cols)
-    print(f"После ограничения длины и дедупликации: {len(filtered)}")
-
-    # Сохраняем полный датасет и stratified split
-    filtered.to_parquet(OUT_DIR / "dataset.parquet", index=False)
-
-    rng = np.random.RandomState(42)
-    for split_name, frac in [("train", 0.7), ("val", 0.15), ("test", 0.15)]:
-        parts = []
-        for label in (0, 1):
-            sub = filtered[filtered.label == label]
-            n = int(len(sub) * frac)
-            parts.append(sub.sample(n=n, random_state=rng))
-        pd.concat(parts).to_parquet(OUT_DIR / f"{split_name}.parquet", index=False)
-
-    for split_name in ("train", "val", "test"):
-        d = pd.read_parquet(OUT_DIR / f"{split_name}.parquet")
-        print(f"{split_name}: {len(d)} (0: {(d.label==0).sum()}, 1: {(d.label==1).sum()})")
-
-    # Сохраняем описание датасета
-    desc = {
-        "total": int(len(df)),
-        "after_filter": int(len(filtered)),
-        "class_0": int((filtered.label == 0).sum()),
-        "class_1": int((filtered.label == 1).sum()),
-        "mos_median": float(filtered.mos_pred.median()),
-        "mos_min": float(filtered.mos_pred.min()),
-        "mos_max": float(filtered.mos_pred.max()),
-        "duration_median_sec": float(filtered.duration.median()),
-        "words_median": float(filtered.n_words.median()),
-        "domains": filtered.domain.value_counts().to_dict(),
-    }
-    with open(OUT_DIR / "dataset_stats.json", "w") as f:
-        json.dump(desc, f, ensure_ascii=False, indent=2)
-    print(json.dumps(desc, ensure_ascii=False, indent=2)[:2000])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--raw", type=Path, default=RAW_DIR)
+    parser.add_argument("--out", type=Path, default=OUT_DIR)
+    args = parser.parse_args()
+    frame = prepare_rows(load_and_label(args.raw))
+    splits = split_dataset(frame)
+    args.out.mkdir(parents=True, exist_ok=True)
+    frame.to_parquet(args.out / "dataset.parquet", index=False)
+    for name, data in splits.items():
+        data.to_parquet(args.out / f"{name}.parquet", index=False)
+    stats = {name: {"rows": len(data), "classes": data.label.value_counts().to_dict(),
+                    "groups": data.group_id.nunique()} for name, data in splits.items()}
+    (args.out / "dataset_stats.json").write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(json.dumps(stats, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

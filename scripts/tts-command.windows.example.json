@@ -1,0 +1,7 @@
+[
+  "{python}",
+  "-m",
+  "scripts.tts_windows",
+  "--output",
+  "{output}"
+]

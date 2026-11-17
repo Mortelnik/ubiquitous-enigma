@@ -4,10 +4,9 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>VoiceFlow AI — Панель управления</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="/static/styles.css" rel="stylesheet" />
   <style>
-    body { font-family: 'Inter', sans-serif; }
+    body { font-family: system-ui, sans-serif; }
     .icon { display: inline-flex; align-items: center; justify-content: center; width: 1.25rem; height: 1.25rem; line-height: 1; font-size: 1.05rem; flex: 0 0 auto; }
     .icon-lg { width: 2rem; height: 2rem; font-size: 1.85rem; }
     .active-tab { background-color: #E0E7FF; color: #312E81; }
@@ -44,6 +43,9 @@
       </button>
     </nav>
     <div class="p-4 border-t border-gray-100">
+      <label for="api-token" class="text-xs text-gray-500">Ключ доступа к серверу</label>
+      <input id="api-token" type="password" autocomplete="off" class="w-full p-2 border rounded-lg text-sm" placeholder="Если задан при запуске" />
+      <button id="connect-btn" class="mt-1 text-sm text-indigo-700">Подключиться</button>
       <div class="flex items-center gap-3 p-2">
         <div class="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold">DO</div>
         <div>
@@ -164,7 +166,13 @@
         </section>
 
         <section class="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm">
-          <h2 class="font-bold mb-6">Метрики качества</h2>
+          <h2 class="font-bold mb-6">Стиль речи</h2>
+          <div id="classification-result" class="text-sm text-gray-700" aria-live="polite">Результат появится после обработки в режиме классификатора.</div>
+          <div id="saved-notes" class="text-sm text-gray-500 whitespace-pre-wrap mt-4"></div>
+        </section>
+
+        <section class="bg-white rounded-2xl border border-gray-200 p-8 shadow-sm">
+          <h2 class="font-bold mb-6">Метрики обработки</h2>
           <div id="metrics-empty" class="text-sm text-gray-400">Метрики появятся после транскрибации аудио.</div>
           <div id="metrics-block" class="space-y-4 hidden"></div>
         </section>
@@ -177,9 +185,9 @@
             </button>
           </div>
           <div id="report-summary" class="grid grid-cols-2 gap-3 text-sm"></div>
-          <a id="report-download" class="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-[#1E1B4B] px-4 py-3 text-sm font-semibold text-white hover:bg-opacity-90" href="/report/export.csv" download>
+          <button id="report-download" class="mt-4 inline-flex w-full items-center justify-center rounded-lg bg-[#1E1B4B] px-4 py-3 text-sm font-semibold text-white hover:bg-opacity-90" onclick="downloadReport()">
             Скачать CSV для отчёта
-          </a>
+          </button>
           <div id="report-runs" class="mt-4 space-y-2 text-xs text-gray-500"></div>
         </section>
       </div>
@@ -189,6 +197,26 @@
   <script>
     // Базовый URL API. При деплое за прокси оставляем относительным.
     const API_BASE = window.API_BASE || "";
+    let apiToken = '';
+
+    async function apiFetch(path, options = {}) {
+      const headers = new Headers(options.headers);
+      if (apiToken) headers.set('Authorization', `Bearer ${apiToken}`);
+      const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+      if (!response.ok) {
+        let detail = `Ошибка сервера: ${response.status}`;
+        try { detail = (await response.json()).detail || detail; } catch (e) {}
+        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      }
+      return response;
+    }
+
+    function element(tag, className, text) {
+      const node = document.createElement(tag);
+      node.className = className;
+      if (text !== undefined) node.textContent = text ?? '—';
+      return node;
+    }
 
     let currentTaskId = null;
     let audioFile = null;
@@ -218,7 +246,7 @@
       ];
       let prompts = fallback;
       try {
-        const res = await fetch(`${API_BASE}/prompts`);
+        const res = await apiFetch('/prompts');
         if (res.ok) {
           const data = await res.json();
           // Real-time промпт (prompt_5) требует current_summary — исключаем из UI.
@@ -227,27 +255,27 @@
         }
       } catch (e) { /* используем fallback */ }
 
-      const opts = prompts.map(p => `<option value="${p.key}">${p.name}</option>`).join('');
-      document.getElementById('audio-prompt').innerHTML = opts;
-      document.getElementById('transcript-prompt').innerHTML = opts;
+      for (const id of ['audio-prompt', 'transcript-prompt']) {
+        const select = document.getElementById(id);
+        select.replaceChildren(...prompts.map(p => new Option(p.name, p.key)));
+      }
     }
 
     // ─── Проверка здоровья API ───────────────────────────────────────────────
     async function checkHealth() {
       const badge = document.getElementById('api-badge');
       try {
-        const res = await fetch(`${API_BASE}/health`);
+        const res = await apiFetch('/health');
         if (res.ok) {
           const d = await res.json();
           if (!d.whisper_model || !d.ollama_model) throw new Error();
-          const cuda = d.cuda_available ? `CUDA: ${d.cuda_device_name || 'yes'}` : 'CUDA: no';
-          badge.textContent = `API: ${d.whisper_model} • ${cuda} • Whisper: ${d.whisper_device_requested || 'auto'} • NeMo: ${d.diarization_device_requested || 'auto'} • Ollama: ${d.ollama_model}`;
+          badge.textContent = `API доступен • Классификатор: ${d.classifier_ready ? 'готов' : 'требуется обучение'}`;
           badge.className = "text-xs px-3 py-1 rounded-full font-medium bg-green-50 text-green-700";
           return;
         }
         throw new Error();
       } catch (e) {
-        badge.textContent = "API недоступен — запустите backend";
+        badge.textContent = e.message || "API недоступен — проверьте сервер и ключ доступа";
         badge.className = "text-xs px-3 py-1 rounded-full font-medium bg-amber-50 text-amber-700";
       }
     }
@@ -277,6 +305,7 @@
 
     // ─── Обработка аудио ─────────────────────────────────────────────────────
     async function handleAudio() {
+      if (currentTaskId) { showStatus('Дождитесь завершения текущей обработки', 0); return; }
       if (!audioFile) { alert('Выберите аудиофайл'); return; }
       const btn = document.getElementById('process-audio-btn');
       setBtnBusy(btn, true);
@@ -287,17 +316,18 @@
       fd.append('prompt', document.getElementById('audio-prompt').value);
 
       try {
-        const res = await fetch(`${API_BASE}/upload`, { method: 'POST', body: fd });
+        const res = await apiFetch('/upload', { method: 'POST', body: fd });
         const { task_id } = await res.json();
         poll(task_id, btn);
       } catch (e) {
-        showStatus('Ошибка соединения с backend', 0, true);
+        showStatus(e.message, 0, true);
         setBtnBusy(btn, false);
       }
     }
 
     // ─── Обработка транскрипта ───────────────────────────────────────────────
     async function handleTranscript() {
+      if (currentTaskId) { showStatus('Дождитесь завершения текущей обработки', 0); return; }
       if (!transcriptFile) { alert('Выберите файл транскрипта'); return; }
       const btn = document.getElementById('process-transcript-btn');
       setBtnBusy(btn, true);
@@ -308,59 +338,71 @@
       fd.append('prompt', document.getElementById('transcript-prompt').value);
 
       try {
-        const res = await fetch(`${API_BASE}/summarize-file`, { method: 'POST', body: fd });
+        const res = await apiFetch('/summarize-file', { method: 'POST', body: fd });
         const data = await res.json();
         if (data.error) { showStatus(data.error, 0, true); setBtnBusy(btn, false); return; }
         poll(data.task_id, btn);
       } catch (e) {
-        showStatus('Ошибка соединения с backend', 0, true);
+        showStatus(e.message, 0, true);
         setBtnBusy(btn, false);
       }
     }
 
     // ─── Опрос статуса ───────────────────────────────────────────────────────
     async function poll(taskId, btn) {
+      if (!taskId) return;
+      if (currentTaskId && currentTaskId !== taskId) return;
       currentTaskId = taskId;
       document.getElementById('cancel-btn').classList.remove('hidden');
       let pct = 15;
       try {
-        const res = await fetch(`${API_BASE}/status/${taskId}`);
+        const res = await apiFetch(`/status/${taskId}`);
         const data = await res.json();
+        if (currentTaskId !== taskId) return;
 
-        if (data.state === 'PENDING' || data.state === 'PROGRESS') {
+        if (data.state === 'PENDING' || data.state === 'PROGRESS' || data.state === 'CANCEL_REQUESTED') {
           pct = Math.min(90, pct + 10);
           showStatus(data.status || 'Обрабатываю…', pct);
-          setTimeout(() => poll(taskId, btn), 2000);
+          setTimeout(() => { if (currentTaskId === taskId) poll(taskId, btn); }, 2000);
         } else if (data.state === 'SUCCESS') {
           showStatus(data.status || 'Готово!', 100);
           document.getElementById('cancel-btn').classList.add('hidden');
           setBtnBusy(btn, false);
           renderMetrics(data.metrics);
+          renderClassification(data.classification, data.saved_notes);
           renderPreview(data.transcript_preview, data.summary_preview);
+          currentTaskId = null;
+          loadReport();
         } else {
           showStatus(data.status || 'Ошибка', 0, true);
           document.getElementById('cancel-btn').classList.add('hidden');
           setBtnBusy(btn, false);
+          currentTaskId = null;
         }
       } catch (e) {
-        showStatus('Потеряно соединение с backend', 0, true);
+        showStatus(e.message, 0, true);
         setBtnBusy(btn, false);
+        currentTaskId = null;
+        document.getElementById('cancel-btn').classList.add('hidden');
       }
     }
 
     async function cancelTask() {
       if (!currentTaskId) return;
-      try { await fetch(`${API_BASE}/cancel/${currentTaskId}`, { method: 'POST' }); } catch (e) {}
-      showStatus('Задача остановлена', 0, true);
-      document.getElementById('cancel-btn').classList.add('hidden');
-      setBtnBusy(document.getElementById('process-audio-btn'), false);
-      setBtnBusy(document.getElementById('process-transcript-btn'), false);
-      currentTaskId = null;
+      try {
+        const response = await apiFetch(`/cancel/${currentTaskId}`, { method: 'POST' });
+        const result = await response.json();
+        showStatus(result.status || 'Отмена запрошена; ожидаю подтверждение', 0);
+        document.getElementById('cancel-btn').classList.add('hidden');
+      }
+      catch (e) { showStatus(e.message, 0, true); return; }
     }
 
     // ─── UI helpers ──────────────────────────────────────────────────────────
     function setBtnBusy(btn, busy) {
-      btn.disabled = busy;
+      for (const id of ['process-audio-btn', 'process-transcript-btn']) {
+        document.getElementById(id).disabled = busy;
+      }
       const icon = btn.querySelector('.icon');
       if (icon) icon.classList.toggle('spin', busy);
     }
@@ -390,27 +432,42 @@
       const rows = [
         ['Длительность', `${m.duration_min} мин`],
         ['Сегментов', m.segments_count],
-        ['Спикеров', m.speakers_count],
+        ['Спикеров', m.diarization_enabled ? m.speakers_count : 'Диаризация выключена'],
         ['Silhouette (диаризация)', m.silhouette],
-        ['Неизвестных спикеров', `${m.unknown_speaker_pct}%`],
-        ['Уверенность Whisper', m.avg_logprob],
-        ['Удалено галлюцинаций', m.hallucinations_removed],
-        ['Уверенность языка', m.language_probability],
+        ['Неизвестных спикеров', m.diarization_enabled ? `${m.unknown_speaker_pct}%` : '—'],
+        ['Whisper avg_logprob (не точность)', m.avg_logprob],
+        ['Отфильтровано сегментов', m.hallucinations_removed],
+        ['Оценка определения языка', m.language_probability],
         ['Модель Whisper', m.whisper_model],
         ['Whisper device', `${m.whisper_device || m.device || '—'} / ${m.whisper_compute_type || '—'}`],
         ['Whisper fallback CPU', m.whisper_fallback_used ? 'да' : 'нет'],
         ['NeMo device', m.diarization_device || '—'],
         ['NeMo fallback CPU', m.diarization_fallback_used ? 'да' : 'нет'],
-        ['CUDA доступна', m.cuda_available ? 'да' : 'нет'],
-        ['CUDA устройство', m.cuda_device_name || '—'],
+        ['CUDA для Whisper (CTranslate2)', m.whisper_cuda_available ? 'да' : 'нет'],
+        ['CUDA устройств для Whisper', m.whisper_cuda_device_count ?? '—'],
+        ['CUDA устройство (PyTorch)', m.cuda_device_name || '—'],
         ['PyTorch', m.torch_version || '—'],
         ['PyTorch CUDA runtime', m.torch_cuda_version || '—'],
       ];
-      block.innerHTML = rows.map(([k, v]) => `
-        <div class="flex justify-between text-sm border-b border-gray-100 pb-2">
-          <span class="text-gray-500">${k}</span>
-          <span class="font-semibold">${v ?? '—'}</span>
-        </div>`).join('');
+      block.replaceChildren(...rows.map(([k, v]) => {
+        const row = element('div', 'flex justify-between text-sm border-b border-gray-100 pb-2');
+        row.append(element('span', 'text-gray-500', k), element('span', 'font-semibold', v));
+        return row;
+      }));
+    }
+
+    function renderClassification(classification, notes) {
+      const target = document.getElementById('classification-result');
+      if (classification) {
+        const confidence = typeof classification.confidence === 'number'
+          ? `${(classification.confidence * 100).toFixed(1)}%` : '—';
+        target.innerText = `Стиль: ${classification.style}\nОценка классификатора: ${confidence}\nЭто оценка модели, а не измеренная точность.\nМодель: ${classification.model || '—'}`;
+        target.classList.add('whitespace-pre-wrap');
+      } else {
+        target.innerText = 'Стиль не определялся. Для классификации выберите роль классификатора стиля.';
+      }
+      document.getElementById('saved-notes').innerText = notes
+        ? 'Сохранено в Obsidian:\n' + Object.values(notes).join('\n') : '';
     }
 
     function renderPreview(transcript, summary) {
@@ -435,38 +492,54 @@
       const summaryEl = document.getElementById('report-summary');
       const runsEl = document.getElementById('report-runs');
       try {
-        const res = await fetch(`${API_BASE}/report/summary`);
+        const res = await apiFetch('/report/summary');
         if (!res.ok) throw new Error();
         const data = await res.json();
         const cards = [
           ['Всего', data.total_runs],
-          ['Успешно', `${data.task_success_rate_pct}%`],
+          ['Успешно', `${data.task_success_rate_pct ?? 0}%`],
           ['Avg ratio', data.avg_processing_ratio ?? '—'],
-          ['GPU runs', `${data.gpu_run_share_pct}%`],
+          ['GPU runs', `${data.gpu_run_share_pct ?? 0}%`],
         ];
-        summaryEl.innerHTML = cards.map(([k, v]) => `
-          <div class="rounded-xl bg-gray-50 p-3">
-            <div class="text-[11px] uppercase tracking-wide text-gray-400">${k}</div>
-            <div class="mt-1 font-bold text-[#1E1B4B]">${v}</div>
-          </div>`).join('');
+        summaryEl.replaceChildren(...cards.map(([k, v]) => {
+          const card = element('div', 'rounded-xl bg-gray-50 p-3');
+          card.append(element('div', 'text-xs text-gray-400', k), element('div', 'mt-1 font-bold', v));
+          return card;
+        }));
         const runs = data.latest_runs || [];
-        runsEl.innerHTML = runs.length
-          ? runs.slice().reverse().map(r => `
-            <div class="rounded-lg border border-gray-100 p-2">
-              <div class="font-semibold text-gray-700">${r.source_name || 'run'} · ${r.status}</div>
-              <div>time: ${r.processing_time_sec ?? '—'}s · ratio: ${r.processing_ratio ?? '—'} · ${r.whisper_device || '—'}</div>
-            </div>`).join('')
-          : 'После первой обработки здесь появятся строки для отчёта.';
+        runsEl.replaceChildren(...runs.slice().reverse().map(r => {
+          const row = element('div', 'rounded-lg border border-gray-100 p-2');
+          row.append(element('div', 'font-semibold text-gray-700', `${r.source_name || 'run'} · ${r.status}`),
+            element('div', '', `Время: ${r.processing_time_sec ?? '—'} с · ${r.style || '—'}`));
+          return row;
+        }));
+        if (!runs.length) runsEl.textContent = 'После первой обработки здесь появятся строки для отчёта.';
       } catch (e) {
-        summaryEl.innerHTML = '<div class="col-span-2 text-sm text-amber-700">Отчёт недоступен — запустите backend.</div>';
-        runsEl.innerHTML = '';
+        summaryEl.replaceChildren(element('div', 'col-span-2 text-sm text-amber-700', e.message));
+        runsEl.replaceChildren();
       }
+    }
+
+    async function downloadReport() {
+      try {
+        const response = await apiFetch('/report/export.csv');
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'voiceflow_report.csv';
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) { showStatus(e.message, 0, true); }
     }
 
     // ─── Init ────────────────────────────────────────────────────────────────
     loadPrompts();
     checkHealth();
     loadReport();
+    document.getElementById('connect-btn').addEventListener('click', () => {
+      apiToken = document.getElementById('api-token').value.trim();
+      loadPrompts(); checkHealth(); loadReport();
+    });
   </script>
 </body>
 </html>

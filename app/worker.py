@@ -14,6 +14,7 @@ spectral clustering) и генерация саммари (Ollama).
 from __future__ import annotations
 
 import datetime
+import hashlib
 import json
 import logging
 import os
@@ -22,10 +23,12 @@ import subprocess
 import tempfile
 from itertools import groupby
 from pathlib import Path
+from uuid import uuid4
 
 from celery import Celery
 
 from .config import settings
+from .classifier import classify_text
 from .obsidian import (
     append_metrics,
     build_summary_md,
@@ -43,6 +46,10 @@ if not hasattr(signal, "SIGKILL"):
 
 # ─── Celery ───────────────────────────────────────────────────────────────────
 app = Celery("worker", broker=settings.REDIS_URL, backend=settings.REDIS_URL)
+app.conf.update(worker_prefetch_multiplier=1, worker_concurrency=1,
+                task_acks_late=True, task_reject_on_worker_lost=True,
+                broker_transport_options={"visibility_timeout": 60},
+                broker_connection_timeout=2, task_publish_retry=False)
 
 WHISPER_MODEL = settings.WHISPER_MODEL
 LANGUAGE = settings.LANGUAGE
@@ -141,10 +148,38 @@ def _resolve_torch_device(requested: str, stage: str) -> str:
     return device
 
 
+def whisper_cuda_report() -> dict:
+    """CTranslate2 discovers CUDA independently of optional PyTorch."""
+    try:
+        import ctranslate2
+        count = int(ctranslate2.get_cuda_device_count())
+        return {"whisper_cuda_available": count > 0,
+                "whisper_cuda_device_count": count, "whisper_cuda_error": None}
+    except Exception as exc:
+        return {"whisper_cuda_available": False,
+                "whisper_cuda_device_count": 0, "whisper_cuda_error": str(exc)}
+
+
+def _resolve_whisper_device(requested: str) -> str:
+    requested = (requested or "auto").strip().lower()
+    if requested == "cpu" or not settings.WHISPER_CUDA_ENABLED:
+        return "cpu"
+    report = whisper_cuda_report()
+    if report["whisper_cuda_available"]:
+        return "cuda"
+    if requested == "cuda" and not settings.WHISPER_FALLBACK_TO_CPU:
+        raise RuntimeError("CTranslate2 не видит CUDA. Проверьте GPU-конфигурацию Docker.")
+    logger.warning("Whisper: CTranslate2 не видит CUDA, используется CPU. %s",
+                   report.get("whisper_cuda_error") or "Нет доступных устройств")
+    return "cpu"
+
+
 def _resolve_whisper_compute_type(device: str) -> str:
     requested = (settings.WHISPER_COMPUTE_TYPE or "auto").strip().lower()
     if requested == "auto":
         return "float16" if device == "cuda" else "int8"
+    if device == "cpu" and requested in {"float16", "int8_float16"}:
+        return "int8"
     return requested
 
 
@@ -170,8 +205,6 @@ def _is_cuda_runtime_error(exc: Exception) -> bool:
 def convert_to_wav(input_path: Path) -> Path:
     """Конвертирует входной файл в моно 16 кГц WAV через ffmpeg."""
     wav_path = input_path.with_stem(input_path.stem + "_clean").with_suffix(".wav")
-    if wav_path.exists():
-        return wav_path
     subprocess.run(
         [
             "ffmpeg", "-y", "-i", str(input_path),
@@ -179,6 +212,7 @@ def convert_to_wav(input_path: Path) -> Path:
         ],
         check=True,
         capture_output=True,
+        timeout=settings.FFMPEG_TIMEOUT_SEC,
     )
     return wav_path
 
@@ -198,17 +232,6 @@ def remove_hallucination_loops(segments, max_repeat=3):
         if len(chunk) <= max_repeat:
             result.extend(chunk)
     return result
-
-
-def _patch_torch_load(torch):
-    """faster-whisper/NeMo требуют weights_only=False для старых чекпойнтов."""
-    original_load = torch.load
-
-    def patched_load(*args, **kwargs):
-        kwargs["weights_only"] = False
-        return original_load(*args, **kwargs)
-
-    torch.load = patched_load
 
 
 def _patch_torchaudio_audio_metadata():
@@ -476,18 +499,21 @@ def _run_whisper_once(
 
 def run_whisper(wav_path: Path, cache_path: Path):
     """Транскрибирует аудио с авто-выбором бэкенда."""
+    digest = hashlib.sha256()
+    with wav_path.open("rb") as audio:
+        for chunk in iter(lambda: audio.read(1024 * 1024), b""):
+            digest.update(chunk)
+    cache_key = {"audio_sha256": digest.hexdigest(), "model": WHISPER_MODEL, "language": LANGUAGE}
     if cache_path.exists():
-        with open(cache_path, encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, list):
-            return data, None, {}
-        return data.get("segments", []), None, data.get("whisper_metrics", {})
+        try:
+            with open(cache_path, encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            data = None
+        if isinstance(data, dict) and data.get("cache_key") == cache_key:
+            return data.get("segments", []), None, data.get("whisper_metrics", {})
 
-    import torch
-
-    _patch_torch_load(torch)
-
-    device = _resolve_torch_device(settings.WHISPER_DEVICE, "Whisper")
+    device = _resolve_whisper_device(settings.WHISPER_DEVICE)
     compute_type = _resolve_whisper_compute_type(device)
     fallback_error = None
 
@@ -565,9 +591,15 @@ def run_whisper(wav_path: Path, cache_path: Path):
         else:
             raise
 
+    if (device == "cpu" and settings.WHISPER_CUDA_ENABLED
+            and settings.WHISPER_DEVICE == "cuda"
+            and not whisper_metrics.get("whisper_fallback_used")):
+        whisper_metrics["whisper_fallback_used"] = True
+        whisper_metrics["whisper_fallback_reason"] = "CTranslate2 CUDA недоступна; используется CPU/int8."
+
     with open(cache_path, "w", encoding="utf-8") as f:
         json.dump(
-            {"segments": segments, "whisper_metrics": whisper_metrics},
+            {"cache_key": cache_key, "segments": segments, "whisper_metrics": whisper_metrics},
             f,
             ensure_ascii=False,
             indent=2,
@@ -736,7 +768,7 @@ def _single_speaker_align(whisper_segs):
 def generate_summary(transcript_text: str, prompt_key: str, current_summary: str = "") -> str:
     import ollama
 
-    client = ollama.Client(host=settings.OLLAMA_HOST)
+    client = ollama.Client(host=settings.OLLAMA_HOST, timeout=settings.OLLAMA_TIMEOUT_SEC)
     content = render_prompt(prompt_key, transcript_text, current_summary)
     response = client.chat(
         model=OLLAMA_MODEL,
@@ -745,15 +777,32 @@ def generate_summary(transcript_text: str, prompt_key: str, current_summary: str
     return response["message"]["content"]
 
 
+def analyze_transcript(transcript_text: str, prompt_key: str):
+    """The trained classifier chooses the summary role in automatic mode."""
+    classification = None
+    summary_prompt = prompt_key
+    if prompt_key == "style_classifier":
+        classification = classify_text(transcript_text)
+        summary_prompt = "prompt_1" if classification["label"] == 1 else "prompt_2"
+    summary = generate_summary(transcript_text, summary_prompt)
+    if classification:
+        summary = (
+            f"КЛАСС: {classification['style']}\n"
+            f"Оценка модели: {classification['confidence']:.1%}\n\n{summary}"
+        )
+    return summary, classification, summary_prompt
+
+
 # ─── Celery задача: полная обработка аудио ────────────────────────────────────
 
-@app.task(bind=True)
-def process_audio(self, file_path: str, prompt_key: str):
+def _process_audio(self, file_path: str, prompt_key: str):
     started = timer_start()
     self.update_state(state="PROGRESS", meta={"status": "Конвертация аудио..."})
     input_path = Path(file_path)
+    note_stem = f"{input_path.stem}_{self.request.id or uuid4().hex}"
     prompt_name = get_prompt(prompt_key)["name"]
     try:
+        check_audio_duration(input_path)
         wav_path = convert_to_wav(input_path)
         cache_json = input_path.with_name(input_path.stem + "_cache.json")
 
@@ -793,6 +842,7 @@ def process_audio(self, file_path: str, prompt_key: str):
             duration_min = round(last_end / 60, 1)
 
         cuda_report = torch_cuda_report()
+        whisper_cuda = whisper_cuda_report()
         metrics = {
             "duration_min": duration_min,
             "segments_count": len(aligned),
@@ -814,7 +864,7 @@ def process_audio(self, file_path: str, prompt_key: str):
             "language_probability": whisper_metrics.get("language_probability"),
             # Общее
             "whisper_model": WHISPER_MODEL,
-            "device": device or _resolve_torch_device(settings.WHISPER_DEVICE, "Whisper"),
+            "device": device or _resolve_whisper_device(settings.WHISPER_DEVICE),
             "whisper_device_requested": settings.WHISPER_DEVICE,
             "whisper_device": whisper_metrics.get("whisper_device", device),
             "whisper_compute_type": whisper_metrics.get("whisper_compute_type"),
@@ -825,6 +875,7 @@ def process_audio(self, file_path: str, prompt_key: str):
             "diarization_device": diarization_device,
             "diarization_fallback_used": diarization_fallback_used,
             "diarization_fallback_reason": diarization_fallback_reason,
+            **whisper_cuda,
             "torch_installed": cuda_report.get("torch_installed"),
             "torch_version": cuda_report.get("torch_version"),
             "torch_cuda_version": cuda_report.get("torch_cuda_version"),
@@ -834,24 +885,25 @@ def process_audio(self, file_path: str, prompt_key: str):
         }
 
         self.update_state(state="PROGRESS", meta={"status": "Сохраняю транскрипт в Obsidian..."})
-        transcript_md = build_transcript_md(aligned, input_path.stem, metrics)
-        transcript_path = save_to_obsidian(input_path.stem, transcript_md, "_транскрипт", folder=settings.OBSIDIAN_FOLDER)
+        transcript_md = build_transcript_md(aligned, note_stem, metrics)
+        transcript_path = save_to_obsidian(note_stem, transcript_md, "_транскрипт", folder=settings.OBSIDIAN_FOLDER)
 
-        append_metrics(input_path.stem, metrics, prompt_name)
+        append_metrics(note_stem, metrics, prompt_name)
 
         self.update_state(state="PROGRESS", meta={"status": f"Генерирую саммари ({prompt_key})..."})
         transcript_text = "\n".join(
             f"[{s['speaker']}] {s['timestamp']} {s['text']}" for s in aligned
         )
-        summary = generate_summary(transcript_text, prompt_key)
+        summary, classification, summary_prompt = analyze_transcript(transcript_text, prompt_key)
 
         self.update_state(state="PROGRESS", meta={"status": "Сохраняю саммари в Obsidian..."})
-        summary_md = build_summary_md(summary, input_path.stem, prompt_name)
-        summary_path = save_to_obsidian(input_path.stem, summary_md, "_саммари", folder=settings.OBSIDIAN_FOLDER)
+        summary_md = build_summary_md(summary, note_stem, prompt_name)
+        summary_path = save_to_obsidian(note_stem, summary_md, "_саммари", folder=settings.OBSIDIAN_FOLDER)
 
         processing_time_sec = elapsed_seconds(started)
         audio_duration_sec = (duration_min or 0) * 60
         processing_ratio = round(processing_time_sec / audio_duration_sec, 3) if audio_duration_sec else None
+        metrics.update(processing_time_sec=processing_time_sec, processing_ratio=processing_ratio)
         append_run({
             "status": "success",
             "mode": "audio",
@@ -860,6 +912,8 @@ def process_audio(self, file_path: str, prompt_key: str):
             "prompt_name": prompt_name,
             "processing_time_sec": processing_time_sec,
             "processing_ratio": processing_ratio,
+            "classification": classification,
+            "summary_prompt": summary_prompt,
             "obsidian_saved": True,
             "obsidian_transcript_path": str(transcript_path),
             "obsidian_summary_path": str(summary_path),
@@ -871,6 +925,10 @@ def process_audio(self, file_path: str, prompt_key: str):
             "metrics": metrics,
             "transcript_preview": transcript_text[:500],
             "summary_preview": summary[:300],
+            "classification": classification,
+            "summary_prompt": summary_prompt,
+            "saved_notes": {"transcript": str(transcript_path.relative_to(settings.OBSIDIAN_VAULT)),
+                            "summary": str(summary_path.relative_to(settings.OBSIDIAN_VAULT))},
         }
     except Exception as exc:
         append_run({
@@ -895,26 +953,25 @@ def process_audio(self, file_path: str, prompt_key: str):
 
 # ─── Celery задача: саммари из готового текста ────────────────────────────────
 
-@app.task(bind=True)
-def process_transcript_only(self, transcript_input: str, prompt_key: str, is_text: bool = False):
+def _process_transcript_only(self, transcript_input: str, prompt_key: str, is_text: bool = False):
     started = timer_start()
     self.update_state(state="PROGRESS", meta={"status": "Читаю транскрипт..."})
 
     if is_text:
         transcript_text = transcript_input
-        stem = f"transcript_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        stem = f"transcript_{uuid4().hex}"
     else:
         path = Path(transcript_input)
         if not path.exists():
             raise FileNotFoundError(f"Файл не найден: {transcript_input}")
         with open(path, encoding="utf-8") as f:
             transcript_text = f.read()
-        stem = path.stem
+        stem = f"{path.stem}_{self.request.id or uuid4().hex}"
 
     prompt_name = get_prompt(prompt_key)["name"]
     try:
         self.update_state(state="PROGRESS", meta={"status": f"Генерирую саммари ({prompt_key})..."})
-        summary = generate_summary(transcript_text, prompt_key)
+        summary, classification, summary_prompt = analyze_transcript(transcript_text, prompt_key)
 
         self.update_state(state="PROGRESS", meta={"status": "Сохраняю саммари в Obsidian..."})
         summary_md = build_summary_md(summary, stem, prompt_name)
@@ -928,6 +985,8 @@ def process_transcript_only(self, transcript_input: str, prompt_key: str, is_tex
             "prompt_name": prompt_name,
             "processing_time_sec": elapsed_seconds(started),
             "processing_ratio": None,
+            "classification": classification,
+            "summary_prompt": summary_prompt,
             "obsidian_saved": True,
             "obsidian_summary_path": str(summary_path),
             "metrics": metrics,
@@ -938,6 +997,9 @@ def process_transcript_only(self, transcript_input: str, prompt_key: str, is_tex
             "metrics": metrics,
             "transcript_preview": transcript_text[:500],
             "summary_preview": summary[:300],
+            "classification": classification,
+            "summary_prompt": summary_prompt,
+            "saved_notes": {"summary": str(summary_path.relative_to(settings.OBSIDIAN_VAULT))},
         }
     except Exception as exc:
         append_run({
@@ -952,3 +1014,26 @@ def process_transcript_only(self, transcript_input: str, prompt_key: str, is_tex
             "metrics": torch_cuda_report(),
         })
         raise
+
+
+def check_audio_duration(path: Path):
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(path)],
+        check=True, capture_output=True, text=True, timeout=15,
+    )
+    duration = float(json.loads(result.stdout)["format"]["duration"])
+    if not 0 < duration <= settings.MAX_AUDIO_DURATION_SEC:
+        raise ValueError("Audio duration exceeds MAX_AUDIO_DURATION_SEC or is invalid")
+    return duration
+
+
+@app.task(bind=True)
+def process_audio(self, file_path: str, prompt_key: str):
+    from .execution import execute_job
+    return execute_job(self.request.id)
+
+
+@app.task(bind=True)
+def process_transcript_only(self, transcript_input: str, prompt_key: str):
+    from .execution import execute_job
+    return execute_job(self.request.id)

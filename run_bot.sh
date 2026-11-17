@@ -11,4 +11,4 @@ if ! grep -q "TELEGRAM_BOT_TOKEN=." .env 2>/dev/null; then
   exit 1
 fi
 
-exec python -m bot.main
+exec uv run --locked python -m bot.main

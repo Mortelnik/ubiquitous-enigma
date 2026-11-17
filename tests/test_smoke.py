@@ -23,7 +23,7 @@ def test_config_loads():
     assert settings.UPLOAD_DIR.name == "uploads" or settings.UPLOAD_DIR.is_absolute()
     assert settings.WHISPER_MODEL
     assert settings.OLLAMA_HOST.startswith("http")
-    assert isinstance(settings.CORS_ORIGINS, list) and settings.CORS_ORIGINS
+    assert isinstance(settings.CORS_ORIGINS, list)
 
 
 def test_prompts_present_and_render():

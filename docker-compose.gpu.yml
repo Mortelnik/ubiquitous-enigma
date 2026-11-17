@@ -1,9 +1,15 @@
+# CUDA libraries match locked CTranslate2 4.4; PyTorch is not required for Whisper.
 services:
   ollama:
     gpus: all
 
-  api:
-    gpus: all
-
   worker:
     gpus: all
+    build:
+      args:
+        UV_EXTRAS: "${UV_EXTRAS:-audio} cuda"
+    environment:
+      WHISPER_DEVICE: cuda
+      WHISPER_CUDA_ENABLED: "true"
+      WHISPER_COMPUTE_TYPE: float16
+      LD_LIBRARY_PATH: /app/.venv/lib/python3.12/site-packages/nvidia/cublas/lib:/app/.venv/lib/python3.12/site-packages/nvidia/cudnn/lib:/app/.venv/lib/python3.12/site-packages/nvidia/cuda_nvrtc/lib:/usr/local/nvidia/lib:/usr/local/nvidia/lib64

@@ -1,9 +1,8 @@
 services:
   redis:
     image: redis:7-alpine
+    command: redis-server --appendonly yes --appendfsync everysec
     restart: unless-stopped
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -15,11 +14,10 @@ services:
   ollama:
     image: ollama/ollama:latest
     restart: unless-stopped
-    ports:
-      - "11434:11434"
+    # API/worker connect to ollama:11434 on the Compose network.
+    # No Windows port binding: a native Ollama installation may use 11434.
     volumes:
       - ollama_data:/root/.ollama
-      - C:/Users/Mot/.ollama/models:/root/.ollama/models
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 15s
@@ -48,16 +46,19 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        REQUIREMENTS_FILE: ${REQUIREMENTS_FILE:-requirements.txt}
+        UV_EXTRAS: ""
     restart: unless-stopped
     env_file:
       - .env.docker
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
+    environment:
+      VOICEFLOW_API_TOKEN: ${VOICEFLOW_API_TOKEN:?Set VOICEFLOW_API_TOKEN and use --env-file .env.docker}
     volumes:
       - uploads_data:/app/uploads
       - obsidian_data:/app/obsidian_vault
       - reports_data:/app/reports
+      - ./models:/app/models:ro
     depends_on:
       redis:
         condition: service_healthy
@@ -70,7 +71,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        REQUIREMENTS_FILE: ${REQUIREMENTS_FILE:-requirements.txt}
+        UV_EXTRAS: ${UV_EXTRAS:-audio}
     restart: unless-stopped
     env_file:
       - .env.docker
@@ -78,12 +79,13 @@ services:
       - uploads_data:/app/uploads
       - obsidian_data:/app/obsidian_vault
       - reports_data:/app/reports
+      - ./models:/app/models:ro
     depends_on:
       redis:
         condition: service_healthy
       ollama:
         condition: service_started
-    command: celery -A app.worker.app worker --loglevel=info --pool=solo
+    command: celery -A app.worker.app worker --loglevel=info --pool=solo --concurrency=1 --prefetch-multiplier=1
 
 
   # Телеграм-бот VoiceFlow AI. Запуск: docker compose --profile bot up -d bot
@@ -92,7 +94,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        REQUIREMENTS_FILE: ${REQUIREMENTS_FILE:-requirements.txt}
+        UV_EXTRAS: ""
     restart: unless-stopped
     profiles: ["bot"]
     env_file:

@@ -81,6 +81,8 @@ def flatten_run(run: dict[str, Any]) -> dict[str, Any]:
         "source_name": run.get("source_name"),
         "prompt_key": run.get("prompt_key"),
         "prompt_name": run.get("prompt_name"),
+        "style": (run.get("classification") or {}).get("style"),
+        "style_confidence": (run.get("classification") or {}).get("confidence"),
         "audio_duration_min": metrics.get("duration_min"),
         "processing_time_sec": run.get("processing_time_sec"),
         "processing_ratio": run.get("processing_ratio"),

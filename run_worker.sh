@@ -4,4 +4,4 @@
 set -e
 cd "$(dirname "$0")"
 # solo pool безопаснее для тяжёлых ML-задач (нет fork-проблем с CUDA).
-exec celery -A app.worker.app worker --loglevel=info --pool=solo
+exec uv run --locked --extra audio celery -A app.worker.app worker --loglevel=info --pool=solo --concurrency=1 --prefetch-multiplier=1
