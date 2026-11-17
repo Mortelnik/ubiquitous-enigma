@@ -55,7 +55,7 @@ WHISPER_MODEL = settings.WHISPER_MODEL
 LANGUAGE = settings.LANGUAGE
 MAX_SPEAKERS = settings.MAX_SPEAKERS
 OLLAMA_MODEL = settings.OLLAMA_MODEL
-WORKER_BUILD = "2026-06-03-stable-mvp-whisper-cpu-default-v3"
+WORKER_BUILD = "1.0.0-mvp-uv-cuda"
 
 
 def torch_cuda_report() -> dict:

@@ -1,0 +1,230 @@
+{
+  "schema_version": 1,
+  "recorded_on": "2026-11-17",
+  "experiment": "real_only",
+  "source": {
+    "repo_id": "lab260/openstt_balalaika",
+    "revision": "c39c8215542af39855943c7ca5c8845bd39650f0"
+  },
+  "model": {
+    "type": "tfidf-logistic-regression",
+    "sha256": "a7b7f91f2948949483cedbe52ddd3fb25b60d323778504327eae91d7a9fdc866",
+    "sklearn_version": "1.9.1",
+    "real_train_rows": 59485,
+    "synthetic_rows": 0,
+    "class_counts": {
+      "1": 57888,
+      "0": 1597
+    }
+  },
+  "dataset_stats": {
+    "train": {
+      "rows": 59485,
+      "classes": {
+        "1": 57888,
+        "0": 1597
+      },
+      "groups": 1716
+    },
+    "val": {
+      "rows": 1826,
+      "classes": {
+        "1": 1485,
+        "0": 341
+      },
+      "groups": 368
+    },
+    "test": {
+      "rows": 1829,
+      "classes": {
+        "1": 1492,
+        "0": 337
+      },
+      "groups": 368
+    }
+  },
+  "split_fingerprints": {
+    "train": "f51a2044f95cd6a51227bed7be2cc25f777d7c1fae3ca5a377b8c7e02a366a0e",
+    "val": "e4ec3639d69382dbeb24b7b465a668094e475eb124b10484a1b61928f1b12032",
+    "test": "6b24ed8f6b9d9a98d095cdc2b2c3a0700913782c9a1e4946a22b80fd86717199"
+  },
+  "metrics": {
+    "val": {
+      "model": {
+        "accuracy": 0.9430449069003286,
+        "balanced_accuracy": 0.8780058651026392,
+        "macro_f1": 0.9005029759409842,
+        "confusion_matrix": [
+          [
+            264,
+            77
+          ],
+          [
+            27,
+            1458
+          ]
+        ],
+        "classification_report": {
+          "0": {
+            "precision": 0.9072164948453608,
+            "recall": 0.7741935483870968,
+            "f1-score": 0.8354430379746836,
+            "support": 341.0
+          },
+          "1": {
+            "precision": 0.9498371335504886,
+            "recall": 0.9818181818181818,
+            "f1-score": 0.9655629139072848,
+            "support": 1485.0
+          },
+          "accuracy": 0.9430449069003286,
+          "macro avg": {
+            "precision": 0.9285268141979247,
+            "recall": 0.8780058651026392,
+            "f1-score": 0.9005029759409842,
+            "support": 1826.0
+          },
+          "weighted avg": {
+            "precision": 0.9418778576477237,
+            "recall": 0.9430449069003286,
+            "f1-score": 0.9412634190042086,
+            "support": 1826.0
+          }
+        }
+      },
+      "baseline": {
+        "accuracy": 0.8132530120481928,
+        "balanced_accuracy": 0.5,
+        "macro_f1": 0.4485049833887043,
+        "confusion_matrix": [
+          [
+            0,
+            341
+          ],
+          [
+            0,
+            1485
+          ]
+        ],
+        "classification_report": {
+          "0": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 341.0
+          },
+          "1": {
+            "precision": 0.8132530120481928,
+            "recall": 1.0,
+            "f1-score": 0.8970099667774086,
+            "support": 1485.0
+          },
+          "accuracy": 0.8132530120481928,
+          "macro avg": {
+            "precision": 0.4066265060240964,
+            "recall": 0.5,
+            "f1-score": 0.4485049833887043,
+            "support": 1826.0
+          },
+          "weighted avg": {
+            "precision": 0.661380461605458,
+            "recall": 0.8132530120481928,
+            "f1-score": 0.7294960573189769,
+            "support": 1826.0
+          }
+        }
+      }
+    },
+    "test": {
+      "model": {
+        "accuracy": 0.9486057955166758,
+        "balanced_accuracy": 0.8869509789102712,
+        "macro_f1": 0.9094188085343134,
+        "confusion_matrix": [
+          [
+            266,
+            71
+          ],
+          [
+            23,
+            1469
+          ]
+        ],
+        "classification_report": {
+          "0": {
+            "precision": 0.9204152249134948,
+            "recall": 0.7893175074183977,
+            "f1-score": 0.8498402555910544,
+            "support": 337.0
+          },
+          "1": {
+            "precision": 0.9538961038961039,
+            "recall": 0.9845844504021448,
+            "f1-score": 0.9689973614775725,
+            "support": 1492.0
+          },
+          "accuracy": 0.9486057955166758,
+          "macro avg": {
+            "precision": 0.9371556644047994,
+            "recall": 0.8869509789102712,
+            "f1-score": 0.9094188085343134,
+            "support": 1829.0
+          },
+          "weighted avg": {
+            "precision": 0.9477271283809922,
+            "recall": 0.9486057955166758,
+            "f1-score": 0.9470422249637636,
+            "support": 1829.0
+          }
+        }
+      },
+      "baseline": {
+        "accuracy": 0.8157463094587206,
+        "balanced_accuracy": 0.5,
+        "macro_f1": 0.4492622704004818,
+        "confusion_matrix": [
+          [
+            0,
+            337
+          ],
+          [
+            0,
+            1492
+          ]
+        ],
+        "classification_report": {
+          "0": {
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1-score": 0.0,
+            "support": 337.0
+          },
+          "1": {
+            "precision": 0.8157463094587206,
+            "recall": 1.0,
+            "f1-score": 0.8985245408009636,
+            "support": 1492.0
+          },
+          "accuracy": 0.8157463094587206,
+          "macro avg": {
+            "precision": 0.4078731547293603,
+            "recall": 0.5,
+            "f1-score": 0.4492622704004818,
+            "support": 1829.0
+          },
+          "weighted avg": {
+            "precision": 0.6654420413955228,
+            "recall": 0.8157463094587206,
+            "f1-score": 0.7329680781164777,
+            "support": 1829.0
+          }
+        }
+      }
+    }
+  },
+  "limitations": [
+    "Weak domain labels; these scores do not measure Telegram audio generalization.",
+    "Group separation yields uneven row counts across splits.",
+    "TTS comparison and independent manually labelled evaluation are not included."
+  ]
+}

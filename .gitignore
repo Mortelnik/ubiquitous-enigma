@@ -58,6 +58,15 @@ reports/*
 *.m4a
 *.ogg
 *.aac
+*.aiff
+*.wma
+*.mp4
+*.m4v
+*.mov
+*.mkv
+*.webm
+*.avi
+*.3gp
 
 # Модели и чекпоинты
 *.pt
@@ -78,8 +87,7 @@ hf_cache/
 transformers_cache/
 
 # Секреты (никогда не загружать!)
-.env
-.env.*
+.env*
 !.env.docker.example
 !.env.example
 *.joblib

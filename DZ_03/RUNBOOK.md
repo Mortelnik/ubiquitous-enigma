@@ -5,12 +5,13 @@
 
 Все команды ниже выполняются в PowerShell на компьютере, из корня репозитория,
 а не внутри контейнера. Нужен установленный uv. Загрузка, синтез и обучение
-выполняются пользователем; готовых весов и новых метрик в Git нет.
+выполняются пользователем; готовых весов в Git нет. Обезличенные результаты
+базового обучения опубликованы в `docs/results/baseline.json`.
 
 ## 1. Данные и базовая модель
 
 ```powershell
-cd D:\Projects\ubiquitous-enigma
+# Откройте PowerShell в корне клонированного репозитория.
 uv sync --locked --extra training
 
 # Публичные текстовые аннотации; аудиоархивы не скачиваются:
@@ -31,7 +32,8 @@ uv run --locked --extra training python -m DZ_03.train_classifier
 - `models/style_classifier.metrics.json` — validation/test: accuracy, balanced
   accuracy, macro-F1, метрики классов, confusion matrix и постоянный baseline.
 
-Доли разбиения приблизительно 70/15/15. Доменные метки слабые; классы отдельных
+Доли групп приблизительно 70/15/15; доли строк могут сильно отличаться из-за размера
+целых групп. Доменные метки слабые; классы отдельных
 реплик могут отличаться от домена. Подготовка останавливается при недостатке
 независимых групп или противоречиях. Не убирайте эти проверки ради запуска.
 
@@ -52,7 +54,18 @@ uv run --locked --extra tts-windows python -m scripts.tts_windows --check
 Windows и повторите проверку. Адаптер использует только голоса, видимые
 `SAPI`, и останавливается, если русского голоса нет. Также можно
 использовать другой локальный TTS: подготовьте JSON-массив его аргументов,
-как описано в README. Облачный TTS в этом сценарии не используется.
+как описано ниже. Облачный TTS в этом сценарии не используется.
+
+Другой локальный движок подключается JSON-массивом аргументов. Он получает текст
+в UTF-8 через stdin и должен записать PCM WAV по пути `{output}`. Плейсхолдер
+`{python}` заменяется на Python текущего окружения uv. Пример структуры:
+
+```json
+["{python}", "scripts/my_local_tts.py", "--output", "{output}"]
+```
+
+`my_local_tts.py` здесь обозначает ваш адаптер, а не файл из репозитория.
+Готовый Windows-адаптер подключён в `scripts/tts-command.windows.example.json`.
 
 ```powershell
 uv run --locked --extra training --extra audio --extra tts-windows python -m scripts.tts_synth --phrases data/processed/train.parquet --out data/tts/run1 --command-file scripts/tts-command.windows.example.json --max-per-class 200 --transcribe --whisper-model base --language ru
@@ -115,6 +128,11 @@ uv run --locked --extra training python -m DZ_03.compare_experiments --synthetic
 В `.env.docker` заполните `TELEGRAM_BOT_TOKEN` и `BOT_ALLOWED_USER_IDS`.
 Для обычного CPU-сценария оставьте `UV_EXTRAS=audio`, `ENABLE_DIARIZATION=false`.
 Классификатор должен находиться в `models/style_classifier.joblib`.
+
+Для первого запуска подготовьте `.env.docker` и API-ключи по инструкции в README.
+Если нужны GPU, папка Windows Obsidian и ответы Telegram, используйте команды
+из [WINDOWS_RESULTS.md](../WINDOWS_RESULTS.md), включая все override-файлы при
+следующих обновлениях. Команда ниже — базовый CPU-вариант с внутренним томом Obsidian.
 
 ```powershell
 docker compose --env-file .env.docker --profile bot up -d --build --force-recreate
